@@ -1,20 +1,22 @@
 from fastapi import FastAPI
 import os
 from dotenv import load_dotenv
-
 from datetime import datetime, timedelta
 import requests
 import pandas as pd
-from AQIPython import calculate_aqi, calculate_aqi
-import matplotlib.pyplot as plt
+import numpy as np
+from AQIPython import calculate_aqi
+from AQIPython.errorCustom import UnknownPollutantError
 
 VICTORIA_COORDINATES = (48.441942, -123.363165)
-
-# Load environment variables from .env file
-load_dotenv()
-
-# Access the API key using os.getenv()
 API_KEY = os.getenv("OPENAQ_API")
+UNITS_MAP = {
+    "µg/m³": "ug/m3",
+    "mg/m³": "mg/m3",
+    "ppm": "ppm"
+}
+
+load_dotenv()
 
 app = FastAPI(title="Air Quality API")
 
@@ -23,6 +25,36 @@ OPENAQ_URL = "https://api.openaq.org/v2/latest"
 @app.get("/")
 def read_root():
     return {"message": f"Hello World, apikey: {API_KEY}"}
+
+@app.get("/aqi/victoria")
+def get_aqi_victoria():
+    locations = get_locations(VICTORIA_COORDINATES[0], VICTORIA_COORDINATES[1], 10000)
+    monitors = locations[locations["isMonitor"]]
+    nearest_monitor = monitors[monitors['distance'] == monitors['distance'].min()]
+    nearest_monitor_id = nearest_monitor.iloc[0].id
+    sensors = get_sensors(nearest_monitor_id)
+    aqis = []
+    for index, sensor in sensors.iterrows():
+        sensor_id = sensor.id
+        parameter = sensor.parameter.get('name').upper()
+        units = UNITS_MAP.get(sensor.parameter.get("units"))
+        print(f'Id: {sensor_id}, Parameter: {parameter}, Units: {units}')
+
+        readings = get_current_readings(sensor_id)
+
+        if len(readings) > 0:
+            mean_reading = np.mean(readings.get("value"))
+            try:
+                aqi = calculate_aqi("IN", parameter, mean_reading, units)
+                aqis.append(aqi)
+                print(f'Mean reading: {mean_reading}, AQI: {aqi}')
+            except UnknownPollutantError:
+                print(f"Unknown pollutant '{parameter}'.")
+
+        else:
+            print(f'No readings found.')
+
+    return np.max(aqis)
 
 @app.get("/aqi/current")
 def get_aqi(lat: float, lon: float):
