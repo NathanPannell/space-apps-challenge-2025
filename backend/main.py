@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 from AQIPython import calculate_aqi
 from AQIPython.errorCustom import UnknownPollutantError
+from datetime import datetime, timedelta
 
 VICTORIA_COORDINATES = (48.441942, -123.363165)
 API_KEY = os.getenv("OPENAQ_API")
@@ -56,6 +57,60 @@ def get_aqi_victoria():
 
     return np.max(aqis)
 
+
+@app.get("/aqi/tempo/victoria")
+def get_aqi_tempo_victora():
+    get_aqi_tempo(48.441942, -123.363165)
+
+@app.get("/aqi/tempo")
+def get_aqi_tempo(lat: float, lon: float):
+    print("about to auth")
+    auth = earthaccess.login(persist=True)
+    print("authed Sucessful")
+
+    now = datetime.utcnow()
+    yesterday = now - timedelta(days=1)
+    date_start = yesterday.strftime("%Y-%m-%dT%H:%M:%S")
+    date_end = now.strftime("%Y-%m-%dT%H:%M:%S")
+
+    pollutants = {
+        "NO2": "TEMPO_NO2_L3",
+        "O3": "TEMPO_O3_L3",
+        "SO2": "TEMPO_SO2_L3",
+    }
+
+    aqis = []    
+
+    for p, short_name in pollutants.items():
+        results = earthaccess.search_data(
+            short_name=short_name,
+            version="V03",
+            temporal=(date_start, date_end),
+            point=(lon, lat),
+        )
+
+        if not results:
+            continue
+
+        granule = results[-1]  # use the most recent one
+        file_path = granule.download(destination="tempo_data/")[0]
+
+        ds = xr.open_dataset(file_path)
+        region = ds.sel(latitude=lat, longitude=lon, method="nearest")
+        value = float(region[p].values)
+
+        aqi = calculate_aqi(p, value)
+        if aqi:
+            aqis.append((p, aqi))
+
+    if not aqis:
+        return {"error": "No data found"}
+    else:
+        return np.max(aqis)
+  
+
+
+
 @app.get("/aqi/current")
 def get_aqi(lat: float, lon: float):
 
@@ -74,18 +129,6 @@ def get_aqi(lat: float, lon: float):
     readings = get_current_readings(sensor_id)
 
 
-    # results = []
-    # for r in readings:
-    #     o3_ppm = r["value"]
-    #     aqi = calculate_ozone_aqi(o3_ppm)
-    #     results.append({
-    #         "timestamp": r["period"]["datetimeFrom"]["utc"],
-    #         "ozone_ppm": o3_ppm,
-    #         "ozone_ppb": o3_ppm * 1000,
-    #         "aqi": aqi
-    #     })
-    #
-    # return {"aqi_data": results}
     return {"readings": readings.to_dict(orient="records")}
 
 
