@@ -1,3 +1,7 @@
+'use client';
+import { useState, useEffect } from "react";
+import AQIDashboard from './components/AQIDashboard';
+
 let aqi_level = {
   level : "Good",
   colour : "lime"
@@ -25,14 +29,46 @@ function getAQILevel(aqi) {
   }
 }
 
+// API component
+function API() {
+  const [data, setData] = useState(null);
+
+  useEffect(() => {
+    fetch("http://localhost:8000/aqi/victoria")
+      .then((res) => res.json())
+      .then((data) => setData(data.aqi))
+      .catch((err) => console.error(err));
+  }, []);
+
+  return <div>{data ? "AQI: "+ data : "Loading..."}</div>;
+}
+
+function getAQI(){
+  data = fetch("http://localhost:8000/aqi/victoria")
+      .then((res) => res.json())
+      .then((data) => setData(data.aqi))
+  return data
+}
+
 export default function Home() {
+
+  const [aqi, setAqi] = useState(null);
+
+  useEffect(() => {
+    fetch("http://localhost:8000/aqi/victoria")
+      .then((res) => res.json())
+      .then((data) => setAqi(data.aqi))
+      .catch((err) => console.error(err));
+  }, []);
+
+  if (!aqi) return <div>Loading...</div>;
+
+  const aqiInfo = getAQILevel(aqi);
+
   return (
     <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
       <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <div>
-          <rect className="items-center justify-items-top" color={aqi_level.colour}>AQI: 0</rect>
-          <p color={aqi_level.colour}>{aqi_level.level}</p>
-        </div>
+        <div><AQIDashboard /></div>
       </main>
       <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
         Built with open source data at the NASA Space Apps Challenge 2025
