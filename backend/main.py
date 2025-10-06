@@ -7,9 +7,11 @@ import pandas as pd
 import numpy as np
 from AQIPython import calculate_aqi
 from AQIPython.errorCustom import UnknownPollutantError
+from fastapi.middleware.cors import CORSMiddleware
 
 VICTORIA_COORDINATES = (48.441942, -123.363165)
 API_KEY = os.getenv("OPENAQ_API")
+
 UNITS_MAP = {
     "µg/m³": "ug/m3",
     "mg/m³": "mg/m3",
@@ -18,8 +20,17 @@ UNITS_MAP = {
 
 load_dotenv()
 
+
 app = FastAPI(title="Air Quality API")
 
+# Allow requests from your Next.js dev server
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 OPENAQ_URL = "https://api.openaq.org/v2/latest"
 
 @app.get("/")
@@ -54,39 +65,39 @@ def get_aqi_victoria():
         else:
             print(f'No readings found.')
 
-    return np.max(aqis)
+    return {"aqi": float(np.max(aqis))}
 
 @app.get("/aqi/current")
 def get_aqi(lat: float, lon: float):
 
-    # Start with coordinates
-    # Find the nearest monitor
-    locations = get_locations(VICTORIA_COORDINATES[0], VICTORIA_COORDINATES[1], 10000)
+    locations = get_locations(lat, lon, 10000)
     monitors = locations[locations["isMonitor"]]
     nearest_monitor = monitors[monitors['distance'] == monitors['distance'].min()]
     nearest_monitor_id = nearest_monitor.iloc[0].id
-
-    # Get a sensor from that monitor
     sensors = get_sensors(nearest_monitor_id)
+    aqis = []
+    for index, sensor in sensors.iterrows():
+        sensor_id = sensor.id
+        parameter = sensor.parameter.get('name').upper()
+        units = UNITS_MAP.get(sensor.parameter.get("units"))
+        print(f'Id: {sensor_id}, Parameter: {parameter}, Units: {units}')
 
-    # Select an arbitrary sensor id
-    sensor_id = sensors.loc[0].id
-    readings = get_current_readings(sensor_id)
+        readings = get_current_readings(sensor_id)
 
+        if len(readings) > 0:
+            mean_reading = np.mean(readings.get("value"))
+            try:
+                aqi = calculate_aqi("IN", parameter, mean_reading, units)
+                aqis.append(aqi)
+                print(f'Mean reading: {mean_reading}, AQI: {aqi}')
+            except UnknownPollutantError:
+                print(f"Unknown pollutant '{parameter}'.")
 
-    # results = []
-    # for r in readings:
-    #     o3_ppm = r["value"]
-    #     aqi = calculate_ozone_aqi(o3_ppm)
-    #     results.append({
-    #         "timestamp": r["period"]["datetimeFrom"]["utc"],
-    #         "ozone_ppm": o3_ppm,
-    #         "ozone_ppb": o3_ppm * 1000,
-    #         "aqi": aqi
-    #     })
-    #
-    # return {"aqi_data": results}
-    return {"readings": readings.to_dict(orient="records")}
+        else:
+            print(f'No readings found.')
+
+    return {"aqi": float(np.max(aqis))}
+
 
 
 
